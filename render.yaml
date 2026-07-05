@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: whatsapp-bridge
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        value: 8827088070:AAFqoJSwKXx5gmsWg1Dl6HiYQFexs6qPR2k
+    healthCheckPath: /
