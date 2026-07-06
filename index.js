@@ -3,6 +3,7 @@ const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, useM
 const { Boom } = require('@hapi/boom');
 const P = require('pino');
 const { restoreAuthState, backupAuthState, saveGroupInfo, AUTH_DIR } = require('./lib/authBackup');
+const autoresponder = require('./lib/autoresponder');
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const OWNER_CHAT_ID = process.env.ADMIN_CHAT_ID || '8361316663';
@@ -141,6 +142,26 @@ async function connectWhatsApp() {
       }
     }
   });
+
+  sock.ev.on('messages.upsert', async ({ messages: msgs, type }) => {
+    if (type !== 'notify') return;
+    for (const msg of msgs) {
+      const jid = msg.key.remoteJid;
+      if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue; // scope: private chats only
+      if (!msg.message) continue;
+      try {
+        if (msg.key.fromMe) {
+          autoresponder.handleOwnMessage(sock, jid, msg);
+        } else {
+          await autoresponder.handleIncoming(sock, jid, msg);
+        }
+      } catch (e) {
+        console.error('messages.upsert handler error:', e.message);
+      }
+    }
+  });
+
+  autoresponder.startSweep(sock);
 }
 
 async function sendTelegramMessage(text) {
