@@ -2,7 +2,7 @@ const express = require('express');
 const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const P = require('pino');
-const { restoreAuthState, backupAuthState, saveGroupInfo, AUTH_DIR } = require('./lib/authBackup');
+const { restoreAuthState, backupAuthState, saveGroupInfo, loadGroupInfo, AUTH_DIR } = require('./lib/authBackup');
 const autoresponder = require('./lib/autoresponder');
 const groupModeration = require('./lib/groupModeration');
 const groupAdmin = require('./lib/groupAdmin');
@@ -131,8 +131,51 @@ app.listen(PORT, () => {
   console.log('Bridge server on port ' + PORT);
 });
 
+async function confirmGroup(attempt = 1) {
+  const MAX_ATTEMPTS = 5;
+  try {
+    const inviteCode = WHATSAPP_GROUP_LINK.split('/').pop();
+    const groupData = await sock.groupGetInviteInfo(inviteCode);
+    try { await sock.groupAcceptInvite(inviteCode); } catch (e) {}
+
+    const groups = await sock.groupFetchAllParticipating();
+    const found = Object.values(groups).find(g => g.id === groupData.id || g.subject === groupData.subject);
+    const newJid = found ? found.id : groupData.id;
+    const newName = found ? found.subject : groupData.subject;
+    const wasAlreadyKnown = !!groupJid;
+    groupJid = newJid;
+    groupName = newName;
+    await saveGroupInfo(groupJid, groupName);
+
+    if (!wasAlreadyKnown) {
+      await sendTelegramMessage(
+        '✅ WhatsApp Bridge Connected!\n\nGroup: ' + groupName + '\n\nUse /group &lt;message&gt; on the assistant bot to post into this group.'
+      );
+    }
+  } catch (err) {
+    console.error(`Group confirm attempt ${attempt} error:`, err.message);
+    if (attempt < MAX_ATTEMPTS) {
+      setTimeout(() => confirmGroup(attempt + 1), attempt * 5000);
+    } else if (!groupJid) {
+      // Only alarm the owner if we truly have no usable group JID (fresh install, cache also empty)
+      await sendTelegramMessage('⚠️ WhatsApp connected, but could not confirm the group after several tries: ' + err.message);
+    } else {
+      console.log('Group confirm failed after retries, but using cached group info from Supabase — /group still works.');
+    }
+  }
+}
+
 async function connectWhatsApp() {
   await restoreAuthState();
+
+  if (!groupJid) {
+    const cached = await loadGroupInfo();
+    if (cached) {
+      groupJid = cached.groupJid;
+      groupName = cached.groupName;
+      console.log(`Restored cached group from Supabase: ${groupName}`);
+    }
+  }
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
   const { version } = await fetchLatestBaileysVersion();
 
@@ -183,25 +226,7 @@ async function connectWhatsApp() {
       console.log('WhatsApp connected!');
       isWhatsAppReady = true;
       await backupAuthState();
-
-      try {
-        const inviteCode = WHATSAPP_GROUP_LINK.split('/').pop();
-        const groupData = await sock.groupGetInviteInfo(inviteCode);
-        try { await sock.groupAcceptInvite(inviteCode); } catch (e) {}
-
-        const groups = await sock.groupFetchAllParticipating();
-        const found = Object.values(groups).find(g => g.id === groupData.id || g.subject === groupData.subject);
-        groupJid = found ? found.id : groupData.id;
-        groupName = found ? found.subject : groupData.subject;
-        await saveGroupInfo(groupJid, groupName);
-
-        await sendTelegramMessage(
-          '✅ WhatsApp Bridge Connected!\n\nGroup: ' + groupName + '\n\nUse /group &lt;message&gt; on the assistant bot to post into this group.'
-        );
-      } catch (err) {
-        console.error('Group error:', err.message);
-        await sendTelegramMessage('✅ WhatsApp connected, but could not confirm the group yet: ' + err.message);
-      }
+      confirmGroup(); // don't block the connection handler on this — it retries internally
     }
 
     if (connection === 'close') {
