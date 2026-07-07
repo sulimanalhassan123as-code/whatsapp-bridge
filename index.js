@@ -7,6 +7,7 @@ const autoresponder = require('./lib/autoresponder');
 const groupModeration = require('./lib/groupModeration');
 const groupAdmin = require('./lib/groupAdmin');
 const moderation = require('./lib/moderation');
+const linkSafety = require('./lib/linkSafety');
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const OWNER_CHAT_ID = process.env.ADMIN_CHAT_ID || '8361316663';
@@ -207,6 +208,7 @@ async function connectWhatsApp() {
       try {
         if (jid.endsWith('@g.us')) {
           if (jid === groupJid && !msg.key.fromMe) {
+            await linkSafety.checkAndReply(sock, groupJid, msg, 'the group');
             await groupModeration.handleGroupMessage(sock, groupJid, msg);
           }
           continue;
@@ -214,6 +216,7 @@ async function connectWhatsApp() {
         if (msg.key.fromMe) {
           autoresponder.handleOwnMessage(sock, jid, msg);
         } else {
+          await linkSafety.checkAndReply(sock, jid, msg, null);
           await autoresponder.handleIncoming(sock, jid, msg);
         }
       } catch (e) {
