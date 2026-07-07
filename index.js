@@ -8,6 +8,7 @@ const groupModeration = require('./lib/groupModeration');
 const groupAdmin = require('./lib/groupAdmin');
 const moderation = require('./lib/moderation');
 const linkSafety = require('./lib/linkSafety');
+const config = require('./lib/config');
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const OWNER_CHAT_ID = process.env.ADMIN_CHAT_ID || '8361316663';
@@ -104,6 +105,26 @@ app.post('/moderation/unblock', async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+app.post('/settings/antilink', async (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ ok: false, error: 'enabled (boolean) required' });
+  }
+  const ok = await config.setAntilinkEnabled(enabled);
+  res.json({ ok });
+});
+
+app.get('/settings/antilink', async (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  const enabled = await config.getAntilinkEnabled();
+  res.json({ ok: true, enabled });
 });
 
 app.listen(PORT, () => {
@@ -208,8 +229,10 @@ async function connectWhatsApp() {
       try {
         if (jid.endsWith('@g.us')) {
           if (jid === groupJid && !msg.key.fromMe) {
-            await linkSafety.checkAndReply(sock, groupJid, msg, 'the group');
-            await groupModeration.handleGroupMessage(sock, groupJid, msg);
+            const handled = await groupModeration.handleGroupMessage(sock, groupJid, msg);
+            if (!handled) {
+              await linkSafety.checkAndReply(sock, groupJid, msg, 'the group');
+            }
           }
           continue;
         }
