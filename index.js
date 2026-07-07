@@ -4,6 +4,9 @@ const { Boom } = require('@hapi/boom');
 const P = require('pino');
 const { restoreAuthState, backupAuthState, saveGroupInfo, AUTH_DIR } = require('./lib/authBackup');
 const autoresponder = require('./lib/autoresponder');
+const groupModeration = require('./lib/groupModeration');
+const groupAdmin = require('./lib/groupAdmin');
+const moderation = require('./lib/moderation');
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const OWNER_CHAT_ID = process.env.ADMIN_CHAT_ID || '8361316663';
@@ -45,6 +48,58 @@ app.post('/send', async (req, res) => {
   try {
     await sock.sendMessage(groupJid, { text: message });
     res.json({ ok: true, group: groupName || groupJid });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/group/add', async (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  const { number } = req.body || {};
+  if (!number) return res.status(400).json({ ok: false, error: 'number required' });
+  if (!isWhatsAppReady || !groupJid) {
+    return res.status(503).json({ ok: false, error: 'whatsapp not connected or group not joined yet' });
+  }
+  try {
+    await groupAdmin.addParticipant(sock, groupJid, number);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/group/remove', async (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  const { number } = req.body || {};
+  if (!number) return res.status(400).json({ ok: false, error: 'number required' });
+  if (!isWhatsAppReady || !groupJid) {
+    return res.status(503).json({ ok: false, error: 'whatsapp not connected or group not joined yet' });
+  }
+  try {
+    await groupAdmin.removeParticipant(sock, groupJid, number);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/moderation/unblock', async (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  const { number, scope } = req.body || {};
+  if (!number) return res.status(400).json({ ok: false, error: 'number required' });
+  const jid = groupAdmin.normalizeJid(number);
+  try {
+    await moderation.resetOffense(jid, scope || 'dm');
+    if (!scope || scope === 'dm') {
+      try { await sock.updateBlockStatus(jid, 'unblock'); } catch (e) { /* may not have been blocked */ }
+    }
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
@@ -147,9 +202,15 @@ async function connectWhatsApp() {
     if (type !== 'notify') return;
     for (const msg of msgs) {
       const jid = msg.key.remoteJid;
-      if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue; // scope: private chats only
+      if (!jid || jid === 'status@broadcast') continue;
       if (!msg.message) continue;
       try {
+        if (jid.endsWith('@g.us')) {
+          if (jid === groupJid && !msg.key.fromMe) {
+            await groupModeration.handleGroupMessage(sock, groupJid, msg);
+          }
+          continue;
+        }
         if (msg.key.fromMe) {
           autoresponder.handleOwnMessage(sock, jid, msg);
         } else {
