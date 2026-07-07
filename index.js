@@ -231,7 +231,7 @@ async function connectWhatsApp() {
           if (jid === groupJid && !msg.key.fromMe) {
             const handled = await groupModeration.handleGroupMessage(sock, groupJid, msg);
             if (!handled) {
-              await linkSafety.checkAndReply(sock, groupJid, msg, 'the group');
+              await linkSafety.checkAndReply(sock, groupJid, msg, 'the group', true);
             }
           }
           continue;
