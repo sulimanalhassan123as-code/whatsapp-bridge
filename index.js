@@ -2,7 +2,7 @@ const express = require('express');
 const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const P = require('pino');
-const { restoreAuthState, backupAuthState, saveGroupInfo, loadGroupInfo, AUTH_DIR } = require('./lib/authBackup');
+const { restoreAuthState, backupAuthState, clearAuthState, saveGroupInfo, loadGroupInfo, AUTH_DIR } = require('./lib/authBackup');
 const autoresponder = require('./lib/autoresponder');
 const groupModeration = require('./lib/groupModeration');
 const groupAdmin = require('./lib/groupAdmin');
@@ -269,7 +269,9 @@ async function connectWhatsApp() {
         console.log('Reconnecting...');
         setTimeout(connectWhatsApp, 2000);
       } else {
-        console.log('Logged out — fresh pairing will be needed.');
+        console.log('Logged out — clearing stale session and requesting fresh pairing.');
+        await clearAuthState();
+        await sendTelegramMessage('⚠️ WhatsApp device was logged out (removed from Linked Devices). Clearing the old session and requesting a fresh pairing code now — watch for it here in a few seconds.');
         setTimeout(connectWhatsApp, 2000);
       }
     }
