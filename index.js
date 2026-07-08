@@ -55,6 +55,36 @@ app.post('/send', async (req, res) => {
   }
 });
 
+// Internal API: send a direct 1-on-1 WhatsApp message to any number (e.g. encouragement pings from Idea Arena)
+function normalizeGhanaNumber(raw) {
+  const digits = String(raw || '').replace(/[^\d]/g, '');
+  if (!digits) return null;
+  if (digits.startsWith('0') && digits.length === 10) return '233' + digits.slice(1);
+  if (digits.startsWith('233')) return digits;
+  if (digits.length === 9) return '233' + digits; // missing leading 0
+  return digits; // already has some country code, or unknown format — pass through
+}
+
+app.post('/dm/send', async (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  const { number, message } = req.body || {};
+  if (!number) return res.status(400).json({ ok: false, error: 'number required' });
+  if (!message || !message.trim()) return res.status(400).json({ ok: false, error: 'message required' });
+  if (!isWhatsAppReady) {
+    return res.status(503).json({ ok: false, error: 'whatsapp not connected yet' });
+  }
+  const jid = groupAdmin.normalizeJid(normalizeGhanaNumber(number));
+  if (!jid) return res.status(400).json({ ok: false, error: 'invalid number' });
+  try {
+    await sock.sendMessage(jid, { text: message });
+    res.json({ ok: true, jid });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.post('/group/add', async (req, res) => {
   if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
     return res.status(401).json({ ok: false, error: 'unauthorized' });
