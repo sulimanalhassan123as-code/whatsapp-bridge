@@ -65,9 +65,19 @@ function normalizeGhanaNumber(raw) {
   return digits; // already has some country code, or unknown format — pass through
 }
 
+const DM_SEND_DISABLED = String(process.env.WA_DM_SEND_DISABLED || 'true') === 'true';
+
 app.post('/dm/send', async (req, res) => {
   if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
     return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  // Safety kill-switch: WhatsApp flags accounts for "starting new chats" with
+  // people who never messaged first — exactly what unsolicited DM pings do.
+  // Disabled by default after a restriction hit; set WA_DM_SEND_DISABLED=false
+  // in Render env vars once it's safe to resume (and ideally only ping numbers
+  // that already have an existing conversation thread, with delays between sends).
+  if (DM_SEND_DISABLED) {
+    return res.status(503).json({ ok: false, error: 'dm_send temporarily disabled (WhatsApp account restriction safety switch)' });
   }
   const { number, message } = req.body || {};
   if (!number) return res.status(400).json({ ok: false, error: 'number required' });
