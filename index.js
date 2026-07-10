@@ -22,6 +22,7 @@ let groupJid = null;
 let groupName = null;
 let isWhatsAppReady = false;
 let pairingCodeRequested = false;
+let reconnectAttempts = 0;
 
 const app = express();
 app.use(express.json());
@@ -222,10 +223,14 @@ async function connectWhatsApp() {
   sock = makeWASocket({
     version,
     auth: state,
-    logger: P({ level: 'warn' }),
+    logger: P({ level: 'silent' }), // silent = no noise in logs, harder to detect bot patterns
     defaultQueryTimeoutMs: 60000,
+    retryRequestDelayMs: 2000,
+    maxMsgRetryCount: 3,
     mobile: false,
-    markOnlineOnConnect: false,
+    markOnlineOnConnect: false, // don't announce "online" immediately — appears more natural
+    generateHighQualityLinkPreview: false, // reduce bot-like metadata requests
+    syncFullHistory: false,
   });
 
   sock.ev.on('creds.update', async () => {
@@ -265,6 +270,7 @@ async function connectWhatsApp() {
     if (connection === 'open') {
       console.log('WhatsApp connected!');
       isWhatsAppReady = true;
+      reconnectAttempts = 0;
       await backupAuthState();
       confirmGroup(); // don't block the connection handler on this — it retries internally
     }
@@ -276,13 +282,19 @@ async function connectWhatsApp() {
         ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut
         : true;
       if (shouldReconnect) {
-        console.log('Reconnecting...');
-        setTimeout(connectWhatsApp, 2000);
+        reconnectAttempts++;
+        const backoffMs = Math.min(2000 * Math.pow(1.5, reconnectAttempts - 1), 60000); // max 60s
+        console.log(`Reconnecting in ${Math.round(backoffMs/1000)}s (attempt ${reconnectAttempts})...`);
+        if (reconnectAttempts > 5) {
+          await sendTelegramMessage(`⚠️ WhatsApp bridge disconnected ${reconnectAttempts} times in a row. Will retry in ${Math.round(backoffMs/1000)}s. Check if the account is restricted.`);
+        }
+        setTimeout(connectWhatsApp, backoffMs);
       } else {
         console.log('Logged out — clearing stale session and requesting fresh pairing.');
+        reconnectAttempts = 0;
         await clearAuthState();
-        await sendTelegramMessage('⚠️ WhatsApp device was logged out (removed from Linked Devices). Clearing the old session and requesting a fresh pairing code now — watch for it here in a few seconds.');
-        setTimeout(connectWhatsApp, 2000);
+        await sendTelegramMessage('⚠️ WhatsApp device was logged out (removed from Linked Devices). Clearing session and requesting a fresh pairing code — watch for it here in a few seconds.');
+        setTimeout(connectWhatsApp, 3000);
       }
     }
   });
@@ -306,6 +318,8 @@ async function connectWhatsApp() {
         if (msg.key.fromMe) {
           autoresponder.handleOwnMessage(sock, jid, msg);
         } else {
+          // Simulate reading the message before replying — natural human behaviour
+          try { await sock.readMessages([msg.key]); } catch (_) {}
           await linkSafety.checkAndReply(sock, jid, msg, null);
           await autoresponder.handleIncoming(sock, jid, msg);
         }
