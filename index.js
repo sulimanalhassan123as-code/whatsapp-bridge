@@ -168,6 +168,77 @@ app.get('/settings/antilink', async (req, res) => {
   res.json({ ok: true, enabled });
 });
 
+
+// /logout — clear session and force fresh pair (soft disconnect)
+app.post('/logout', async (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  try {
+    if (sock) {
+      try { await sock.logout(); } catch (_) {}
+      try { sock.end(); } catch (_) {}
+      sock = null;
+    }
+    isWhatsAppReady = false;
+    pairingCodeRequested = false;
+    await clearAuthState();
+    await sendTelegramMessage('🔌 WhatsApp session logged out from Telegram command. Requesting fresh pairing code...');
+    setTimeout(connectWhatsApp, 2000);
+    res.json({ ok: true, message: 'Logged out — fresh pairing code coming in a moment' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// /clear-auth — nuke session files completely (hard reset)
+app.post('/clear-auth', async (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  try {
+    if (sock) {
+      try { sock.end(); } catch (_) {}
+      sock = null;
+    }
+    isWhatsAppReady = false;
+    pairingCodeRequested = false;
+    await clearAuthState();
+    await sendTelegramMessage('🗑 WhatsApp auth cleared completely from Telegram command. Requesting fresh pairing code...');
+    setTimeout(connectWhatsApp, 2000);
+    res.json({ ok: true, message: 'Auth cleared — fresh pairing code coming' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// /settings/dmreply — toggle DM auto-reply (stored in memory, also sets env-like flag)
+let dmReplyEnabled = String(process.env.WA_DM_AUTORESPOND || 'false').toLowerCase() === 'true';
+app.post('/settings/dmreply', async (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ ok: false, error: 'enabled (boolean) required' });
+  }
+  dmReplyEnabled = enabled;
+  // Patch the autoresponder at runtime
+  try {
+    const autoresponder = require('./lib/autoresponder');
+    if (typeof autoresponder.setDmReply === 'function') autoresponder.setDmReply(enabled);
+  } catch (_) {}
+  await sendTelegramMessage(`📱 DM auto-reply is now <b>${enabled ? 'ON ✅' : 'OFF ⏸'}</b> — changed from Telegram command.`);
+  res.json({ ok: true, enabled });
+});
+
+app.get('/settings/dmreply', (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  res.json({ ok: true, enabled: dmReplyEnabled });
+});
+
 app.listen(PORT, () => {
   console.log('Bridge server on port ' + PORT);
 });
