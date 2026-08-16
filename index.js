@@ -413,4 +413,4 @@ async function sendTelegramMessage(text) {
   } catch (err) { console.error('TG send error:', err.message); }
 }
 
-connectWhatsApp();
+// connectWhatsApp(); // temporarily disabled to cool down WhatsApp pairing rate-limit
