@@ -7,5 +7,5 @@ services:
     startCommand: node index.js
     envVars:
       - key: TELEGRAM_BOT_TOKEN
-        value: 8827088070:AAFqoJSwKXx5gmsWg1Dl6HiYQFexs6qPR2k
+        value: 8827088070:AAFZPz6PWpC5UGnhpbkCI1arq_9uuIePVV8
     healthCheckPath: /
