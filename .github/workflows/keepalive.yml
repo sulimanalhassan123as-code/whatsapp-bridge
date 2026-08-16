@@ -1,0 +1,13 @@
+name: Keep Render bridge alive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping WhatsApp bridge health endpoint
+        run: curl -sf --max-time 20 https://whatsapp-bridge-6bdj.onrender.com/ || true
