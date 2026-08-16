@@ -176,5 +176,5 @@ async function sendTelegramMessage(text) {
 
 (async () => {
   await connectWhatsApp();
-  pollTelegram();
+  // pollTelegram() disabled — webhook mode (neverhide-assistant handles commands)
 })();
