@@ -261,7 +261,7 @@ async function confirmGroup(attempt = 1) {
 
     if (!wasAlreadyKnown) {
       await sendTelegramMessage(
-        '✅ WhatsApp Bridge Connected!\n\nGroup: ' + groupName + '\n\nUse /group &lt;message&gt; on the assistant bot to post into this group.'
+        '✅ WhatsApp Bridge Connected!\n\nGroup: ' + groupName + '\n\nSend me any message → forwarded to WhatsApp group.\n\n/status - Check connection\n/group <message> - Send to WhatsApp group'
       );
     }
   } catch (err) {
@@ -410,19 +410,19 @@ let lastUpdateId = 0;
 let telegramPollingActive = false;
 
 async function pollTelegram() {
-  if (telegramPollingActive) return; // prevent duplicate polling loops
+  if (telegramPollingActive) return;
   telegramPollingActive = true;
-  
+
   while (true) {
     try {
-      const url = 'https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN + '/getUpdates?offset=' + (lastUpdateId + 1) + '&timeout=30&allowed_updates=' + encodeURIComponent(JSON.stringify(['message','callback_query']));
+      const url = 'https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN + '/getUpdates?offset=' + (lastUpdateId + 1) + '&timeout=30';
       const resp = await fetch(url);
       const data = await resp.json();
-      
+
       if (data.ok && data.result && data.result.length > 0) {
         for (const update of data.result) {
           lastUpdateId = update.update_id;
-          
+
           // Handle callback queries (inline button taps)
           if (update.callback_query) {
             try {
@@ -434,91 +434,52 @@ async function pollTelegram() {
             } catch (_) {}
             continue;
           }
-          
+
           if (!update.message || !update.message.chat) continue;
           const chatId = String(update.message.chat.id);
           const text = (update.message.text || '').trim();
-          
+
           // Security: only respond to the owner
           if (chatId !== OWNER_CHAT_ID) continue;
-          
-          if (text === '/start' || text === '/help') {
+
+          if (text === '/status') {
             await sendTelegramMessage(
-              '<b>🤖 Arena107 Bot — Commands</b>\n\n' +
-              '<b>/group &lt;message&gt;</b> — Send a message to the WhatsApp group\n' +
-              '<b>/status</b> — Check WhatsApp & bridge status\n' +
-              '<b>/logout</b> — Reset WhatsApp session (fresh pairing code)\n' +
-              '<b>/clear-auth</b> — Full auth reset (nuclear option)\n' +
-              '<b>/dmreply on|off</b> — Toggle DM auto-reply\n' +
-              '<b>/antilink on|off</b> — Toggle group link deletion\n\n' +
-              'Or just send any text (without /) to forward it to the WhatsApp group.'
+              'WhatsApp: ' + (isWhatsAppReady ? '✅ Connected' : '❌ Disconnected') +
+              '\nGroup: ' + (groupName || groupJid || 'Not joined') +
+              '\nUptime: ' + Math.floor(process.uptime() / 60) + ' min'
             );
-          } else if (text === '/status') {
+          } else if (text === '/start' || text === '/help') {
             await sendTelegramMessage(
-              '<b>📊 Bridge Status</b>\n\n' +
-              'WhatsApp: ' + (isWhatsAppReady ? '✅ Connected' : '❌ Disconnected') + '\n' +
-              'Group: ' + (groupName || groupJid || 'Not joined') + '\n' +
-              'Uptime: ' + Math.floor(process.uptime() / 60) + ' min\n' +
-              'DM Auto-reply: ' + (dmReplyEnabled ? 'ON' : 'OFF')
+              'Send me any message → forwarded to WhatsApp group.\n/status - Check connection\n/group <message> - Send to WhatsApp group'
             );
-          } else if (text === '/logout') {
-            try {
-              if (sock) { try { await sock.logout(); } catch (_) {} try { sock.end(); } catch (_) {} sock = null; }
-              isWhatsAppReady = false;
-              pairingCodeRequested = false;
-              await clearAuthState();
-              await sendTelegramMessage('🔌 WhatsApp session logged out. Requesting fresh pairing code...');
-              setTimeout(connectWhatsApp, 2000);
-            } catch (e) { await sendTelegramMessage('❌ Logout error: ' + e.message); }
-          } else if (text === '/clear-auth') {
-            try {
-              if (sock) { try { sock.end(); } catch (_) {} sock = null; }
-              isWhatsAppReady = false;
-              pairingCodeRequested = false;
-              await clearAuthState();
-              await sendTelegramMessage('🗑 Auth cleared completely. Requesting fresh pairing code...');
-              setTimeout(connectWhatsApp, 2000);
-            } catch (e) { await sendTelegramMessage('❌ Clear error: ' + e.message); }
-          } else if (text.startsWith('/dmreply ')) {
-            const val = text.split(' ')[1].toLowerCase();
-            const enabled = val === 'on' || val === 'true';
-            dmReplyEnabled = enabled;
-            try { const ar = require('./lib/autoresponder'); if (typeof ar.setDmReply === 'function') ar.setDmReply(enabled); } catch (_) {}
-            await sendTelegramMessage('📱 DM auto-reply: <b>' + (enabled ? 'ON ✅' : 'OFF ⏸') + '</b>');
-          } else if (text.startsWith('/antilink ')) {
-            const val = text.split(' ')[1].toLowerCase();
-            const enabled = val === 'on' || val === 'true';
-            const ok = await config.setAntilinkEnabled(enabled);
-            await sendTelegramMessage('🔗 Antilink: <b>' + (enabled ? 'ON ✅' : 'OFF ⏸') + '</b>');
           } else if (text.startsWith('/group ')) {
             const msg = text.slice(7).trim();
             if (!msg) { await sendTelegramMessage('Usage: /group <your message>'); continue; }
             if (isWhatsAppReady && groupJid) {
               try {
                 await sock.sendMessage(groupJid, { text: msg });
-                await sendTelegramMessage('✅ Sent to WhatsApp group:\n\n' + msg);
-              } catch (err) { await sendTelegramMessage('❌ Send failed: ' + err.message); }
+                await sendTelegramMessage('✅ Sent to WhatsApp:\n\n' + msg);
+              } catch (err) { await sendTelegramMessage('❌ Failed: ' + err.message); }
             } else {
-              await sendTelegramMessage('❌ WhatsApp not connected. Send /status');
+              await sendTelegramMessage('❌ Not connected. /status');
             }
           } else if (text.startsWith('/')) {
-            await sendTelegramMessage('Unknown command. Send /help');
-          } else if (text.length > 0) {
-            // Plain text (no slash) → forward to WhatsApp group
+            await sendTelegramMessage('Unknown. Send /help');
+          } else if (text.trim().length > 0) {
             if (isWhatsAppReady && groupJid) {
               try {
                 await sock.sendMessage(groupJid, { text: text });
-                await sendTelegramMessage('✅ Sent to WhatsApp group:\n\n' + text);
-              } catch (err) { await sendTelegramMessage('❌ Send failed: ' + err.message); }
+                await sendTelegramMessage('✅ Sent to WhatsApp:\n\n' + text);
+              } catch (err) { await sendTelegramMessage('❌ Failed: ' + err.message); }
             } else {
-              await sendTelegramMessage('❌ WhatsApp not connected. Send /status');
+              await sendTelegramMessage('❌ Not connected. /status');
             }
           }
         }
       }
     } catch (err) {
       console.error('Telegram poll error:', err.message);
-      await new Promise(r => setTimeout(r, 5000)); // backoff on error
+      await new Promise(r => setTimeout(r, 5000));
     }
   }
 }
