@@ -448,4 +448,11 @@ async function sendTelegramMessage(text) {
   } catch (err) { console.error('TG send error:', err.message); }
 }
 
-// connectWhatsApp(); // temporarily disabled to cool down WhatsApp pairing rate-limit
+// Auto-connect controlled by env var (was temporarily disabled to cool down
+// WhatsApp pairing rate-limit). The Supabase auth backup restores the session
+// so no new pairing is needed — silent reconnection.
+if (process.env.WA_AUTO_CONNECT === 'true') {
+  connectWhatsApp();
+} else {
+  console.log('WA_AUTO_CONNECT is not "true" — WhatsApp bridge stays idle until connected manually.');
+}
