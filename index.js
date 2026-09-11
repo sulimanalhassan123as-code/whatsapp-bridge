@@ -56,6 +56,41 @@ app.post('/send', async (req, res) => {
   }
 });
 
+
+// ===== GUARDIAN ALERT (Neverhide Empire Lock Guardian) =====
+// Emergency: phone owner's intruder alert — selfie + caption + live location
+// sent to the owner's chosen number. Rate-limited: max 1 per 2 minutes.
+let lastGuardianSend = 0;
+app.post('/guardian/alert', async (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  const now = Date.now();
+  if (now - lastGuardianSend < 120000) {
+    return res.status(429).json({ ok: false, error: 'rate limited — max one guardian alert per 2 minutes' });
+  }
+  const { number, caption, photoBase64 } = req.body || {};
+  if (!number) return res.status(400).json({ ok: false, error: 'number required' });
+  if (!caption || !caption.trim()) return res.status(400).json({ ok: false, error: 'caption required' });
+  if (!isWhatsAppReady) {
+    return res.status(503).json({ ok: false, error: 'whatsapp not connected yet' });
+  }
+  const jid = groupAdmin.normalizeJid(normalizeGhanaNumber(number));
+  if (!jid) return res.status(400).json({ ok: false, error: 'invalid number' });
+  try {
+    lastGuardianSend = now;
+    if (photoBase64) {
+      const buf = Buffer.from(photoBase64, 'base64');
+      await sock.sendMessage(jid, { image: buf, caption: caption.slice(0, 1024) });
+    } else {
+      await sock.sendMessage(jid, { text: caption.slice(0, 1024) });
+    }
+    res.json({ ok: true, jid });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // Internal API: send a direct 1-on-1 WhatsApp message to any number (e.g. encouragement pings from Idea Arena)
 function normalizeGhanaNumber(raw) {
   const digits = String(raw || '').replace(/[^\d]/g, '');
