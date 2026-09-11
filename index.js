@@ -91,6 +91,27 @@ app.post('/guardian/alert', async (req, res) => {
   }
 });
 
+
+// ===== PAIRING CODE (secret-guarded) =====
+// Returns the WhatsApp pairing code directly in the HTTP response so the
+// owner can read it from his agent (his Telegram bot channel may be dead).
+app.post('/pair/code', async (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  if (isWhatsAppReady) {
+    return res.json({ ok: true, alreadyConnected: true });
+  }
+  try {
+    pairingCodeRequested = true;
+    const code = await sock.requestPairingCode(PHONE_NUMBER);
+    res.json({ ok: true, code, phone: PHONE_NUMBER });
+  } catch (e) {
+    pairingCodeRequested = false;
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // Internal API: send a direct 1-on-1 WhatsApp message to any number (e.g. encouragement pings from Idea Arena)
 function normalizeGhanaNumber(raw) {
   const digits = String(raw || '').replace(/[^\d]/g, '');
