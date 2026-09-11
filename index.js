@@ -22,6 +22,8 @@ let groupJid = null;
 let groupName = null;
 let isWhatsAppReady = false;
 let pairingCodeRequested = false;
+let lastQR = null;
+let lastQRTime = 0;
 let reconnectAttempts = 0;
 
 const app = express();
@@ -110,6 +112,18 @@ app.post('/pair/code', async (req, res) => {
     pairingCodeRequested = false;
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+
+// ===== PAIRING QR (secret-guarded) =====
+// Returns the current WhatsApp linking QR string, plus its age in seconds.
+app.get('/pair/qr', (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  if (isWhatsAppReady) return res.json({ ok: true, alreadyConnected: true });
+  if (!lastQR) return res.status(503).json({ ok: false, error: 'no QR yet — try again in 15s' });
+  res.json({ ok: true, qr: lastQR, ageSec: Math.round((Date.now() - lastQRTime) / 1000) });
 });
 
 // Internal API: send a direct 1-on-1 WhatsApp message to any number (e.g. encouragement pings from Idea Arena)
@@ -366,7 +380,8 @@ async function connectWhatsApp() {
   });
 
   sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect } = update;
+    const { connection, lastDisconnect, qr } = update;
+    if (qr) { lastQR = qr; lastQRTime = Date.now(); }
     console.log('Connection update:', connection || 'other');
 
     if (connection === 'connecting' && !sock.authState.creds.registered && !pairingCodeRequested) {
