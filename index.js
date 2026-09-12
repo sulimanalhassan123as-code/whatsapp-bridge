@@ -24,6 +24,11 @@ let isWhatsAppReady = false;
 let pairingCodeRequested = false;
 let lastQR = null;
 let lastQRTime = 0;
+const debugLog = [];
+function dbg(line) {
+  debugLog.push(new Date().toISOString().slice(11,19) + ' ' + line);
+  if (debugLog.length > 50) debugLog.shift();
+}
 let reconnectAttempts = 0;
 
 const app = express();
@@ -117,6 +122,17 @@ app.post('/pair/code', async (req, res) => {
   }
 });
 
+
+// ===== DEBUG (secret-guarded) =====
+app.get('/debug', (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  const fs = require('fs');
+  let credsRegistered = false;
+  try { credsRegistered = !!JSON.parse(fs.readFileSync(path.join(__dirname, 'creds', 'creds.json'), 'utf8')).registered; } catch (e) {}
+  res.json({ ok: true, ready: isWhatsAppReady, credsRegistered, events: debugLog });
+});
 
 // ===== PAIRING QR (secret-guarded) =====
 // Returns the current WhatsApp linking QR string, plus its age in seconds.
@@ -388,7 +404,9 @@ async function connectWhatsApp() {
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
     if (qr) { lastQR = qr; lastQRTime = Date.now(); }
-    console.log('Connection update:', connection || 'other');
+    const reason = lastDisconnect?.error?.output?.payload?.error || lastDisconnect?.error?.message || (lastDisconnect ? ('code ' + lastDisconnect.error) : '');
+    dbg('conn=' + (connection || '-') + (qr ? ' QR' : '') + (reason ? ' reason=' + reason : ''));
+    console.log('Connection update:', connection || 'other', reason ? '| ' + reason : '');
 
     if (connection === 'connecting' && !sock.authState.creds.registered && !pairingCodeRequested) {
       pairingCodeRequested = true;
