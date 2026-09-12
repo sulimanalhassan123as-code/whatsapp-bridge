@@ -124,14 +124,24 @@ app.post('/pair/code', async (req, res) => {
 
 
 // ===== DEBUG (secret-guarded) =====
-app.get('/debug', (req, res) => {
+app.get('/debug', async (req, res) => {
   if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
     return res.status(401).json({ ok: false, error: 'unauthorized' });
   }
   const fs = require('fs');
   let credsRegistered = false;
-  try { credsRegistered = !!JSON.parse(fs.readFileSync(path.join(__dirname, 'creds', 'creds.json'), 'utf8')).registered; } catch (e) {}
-  res.json({ ok: true, ready: isWhatsAppReady, credsRegistered, events: debugLog });
+  try { credsRegistered = !!JSON.parse(fs.readFileSync(path.join(AUTH_DIR, 'creds.json'), 'utf8')).registered; } catch (e) {}
+  let supabase = null;
+  try {
+    const rows = await require('./lib/authBackup')._sbRaw('wa_bridge_auth?id=eq.1&select=data,updated_at&order=updated_at.desc&limit=1');
+    if (rows && rows.length) {
+      const data = rows[0].data || {};
+      let reg = false;
+      try { reg = !!JSON.parse(Buffer.from((data['creds.json']||''), 'base64').toString('utf8')).registered; } catch (e) {}
+      supabase = { rows: rows.length, updated_at: rows[0].updated_at, files: Object.keys(data).length, registered: reg };
+    } else { supabase = { rows: 0 }; }
+  } catch (e) { supabase = { error: e.message }; }
+  res.json({ ok: true, ready: isWhatsAppReady, credsRegistered, supabase, events: debugLog });
 });
 
 // ===== PAIRING QR (secret-guarded) =====
@@ -437,7 +447,9 @@ async function connectWhatsApp() {
       console.log('WhatsApp connected!');
       isWhatsAppReady = true;
       reconnectAttempts = 0;
+      dbg('conn=open — connected!');
       await backupAuthState();
+      dbg('conn=open — session backup verified in Supabase');
       confirmGroup(); // don't block the connection handler on this — it retries internally
     }
 
