@@ -27,7 +27,7 @@ let lastQRTime = 0;
 let reconnectAttempts = 0;
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '12mb' })); // guardian selfies are ~0.5-3MB as base64
 
 app.get('/', (req, res) => {
   res.json({
@@ -79,6 +79,7 @@ app.post('/guardian/alert', async (req, res) => {
   }
   const jid = groupAdmin.normalizeJid(normalizeGhanaNumber(number));
   if (!jid) return res.status(400).json({ ok: false, error: 'invalid number' });
+  console.log(`[guardian] alert to ${jid} | photo: ${photoBase64 ? Math.round(photoBase64.length * 3 / 4 / 1024) + 'KB' : 'none'} | caption: ${caption.slice(0, 40)}...`);
   try {
     lastGuardianSend = now;
     if (photoBase64) {
@@ -87,8 +88,10 @@ app.post('/guardian/alert', async (req, res) => {
     } else {
       await sock.sendMessage(jid, { text: caption.slice(0, 1024) });
     }
+    console.log(`[guardian] sent OK to ${jid}`);
     res.json({ ok: true, jid });
   } catch (e) {
+    console.log(`[guardian] SEND FAILED to ${jid}: ${e.message}`);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
@@ -158,10 +161,13 @@ app.post('/dm/send', async (req, res) => {
   }
   const jid = groupAdmin.normalizeJid(normalizeGhanaNumber(number));
   if (!jid) return res.status(400).json({ ok: false, error: 'invalid number' });
+  console.log(`[guardian] alert to ${jid} | photo: ${photoBase64 ? Math.round(photoBase64.length * 3 / 4 / 1024) + 'KB' : 'none'} | caption: ${caption.slice(0, 40)}...`);
   try {
     await sock.sendMessage(jid, { text: message });
+    console.log(`[guardian] sent OK to ${jid}`);
     res.json({ ok: true, jid });
   } catch (e) {
+    console.log(`[guardian] SEND FAILED to ${jid}: ${e.message}`);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
