@@ -89,7 +89,12 @@ app.post('/guardian/alert', async (req, res) => {
     lastGuardianSend = now;
     if (photoBase64) {
       const buf = Buffer.from(photoBase64, 'base64');
-      await sock.sendMessage(jid, { image: buf, caption: caption.slice(0, 1024) });
+      try {
+        await sock.sendMessage(jid, { image: buf, caption: caption.slice(0, 1024) });
+      } catch (imgErr) {
+        console.log(`[guardian] IMAGE send failed (${imgErr.message}) — falling back to text-only`);
+        await sock.sendMessage(jid, { text: caption.slice(0, 1024) + '\n📷 (photo upload failed — sent as text instead)' });
+      }
     } else {
       await sock.sendMessage(jid, { text: caption.slice(0, 1024) });
     }
@@ -448,8 +453,9 @@ async function connectWhatsApp() {
       isWhatsAppReady = true;
       reconnectAttempts = 0;
       dbg('conn=open — connected!');
-      await backupAuthState();
-      dbg('conn=open — session backup verified in Supabase');
+      const backedUp = await backupAuthState();
+      if (backedUp) dbg('conn=open — session backup verified in Supabase');
+      else dbg('conn=open — session backup NOT verified (in-flight or failed) — check logs');
       confirmGroup(); // don't block the connection handler on this — it retries internally
     }
 
