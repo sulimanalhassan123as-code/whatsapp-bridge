@@ -1,5 +1,7 @@
 const express = require('express');
 const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
 const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const P = require('pino');
@@ -179,7 +181,6 @@ app.get('/debug', async (req, res) => {
   if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET) {
     return res.status(401).json({ ok: false, error: 'unauthorized' });
   }
-  const fs = require('fs');
   let credsRegistered = false;
   try { credsRegistered = !!JSON.parse(fs.readFileSync(path.join(AUTH_DIR, 'creds.json'), 'utf8')).registered; } catch (e) {}
   let supabase = null;
