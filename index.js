@@ -1,4 +1,5 @@
 const express = require('express');
+const multer = require('multer');
 const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const P = require('pino');
@@ -63,6 +64,51 @@ app.post('/send', async (req, res) => {
   }
 });
 
+
+// ===== DIRECT VIDEO SEND (Neverhide Empire Screen Recorder) =====
+// Receives a recorded .mp4 straight from the app (multipart — no base64,
+// no JSON body limits) and posts it EITHER to the owner's WhatsApp
+// Status (status@broadcast) or to any chat by number. No WhatsApp app
+// interaction needed on the phone — the bridge IS a linked device.
+const TMP_UPLOADS = path.join(__dirname, 'tmp_uploads');
+fs.mkdirSync(TMP_UPLOADS, { recursive: true });
+const uploadVideo = multer({
+  dest: TMP_UPLOADS,
+  limits: { fileSize: 200 * 1024 * 1024, files: 1 }
+});
+app.post('/video/send', uploadVideo.single('video'), async (req, res) => {
+  if (BRIDGE_SECRET && req.get('x-bridge-secret') !== BRIDGE_SECRET && req.body.secret !== BRIDGE_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+  const target = (req.body.target || '').trim();
+  const caption = (req.body.caption || 'Screen recording').slice(0, 1024);
+  if (!req.file) return res.status(400).json({ ok: false, error: 'no video file' });
+  if (!isWhatsAppReady || !sock) {
+    return res.status(503).json({ ok: false, error: 'whatsapp not connected (try again in ~60s)' });
+  }
+  const filePath = req.file.path;
+  const sizeMb = Math.round(req.file.size / 1024 / 1024);
+  let jid = 'status@broadcast';
+  if (target.toLowerCase() !== 'status') {
+    jid = groupAdmin.normalizeJid(normalizeGhanaNumber(target));
+    if (!jid) {
+      fs.unlink(req.file.path, () => {});
+      return res.status(400).json({ ok: false, error: 'invalid target number' });
+    }
+  }
+  console.log(`[video] send to ${jid} | ${sizeMb}MB | caption: ${caption.slice(0, 40)}`);
+  try {
+    const media = { video: { url: filePath }, caption, mimetype: 'video/mp4', ptt: false };
+    const result = await sock.sendMessage(jid, media);
+    console.log(`[video] sent OK to ${jid}`);
+    res.json({ ok: true, jid });
+  } catch (e) {
+    console.error(`[video] SEND FAILED to ${jid}: ${e.message}`);
+    res.status(500).json({ ok: false, error: e.message });
+  } finally {
+    fs.unlink(filePath, () => {}); // always clean the temp upload
+  }
+});
 
 // ===== GUARDIAN ALERT (Neverhide Empire Lock Guardian) =====
 // Emergency: phone owner's intruder alert — selfie + caption + live location
